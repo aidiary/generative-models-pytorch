@@ -126,7 +126,7 @@ class VanillaVAE(pl.LightningModule):
         return eps * std + mu
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=0.01)
+        optimizer = optim.Adam(self.parameters(), lr=0.005)
         return optimizer
 
     def training_step(self, train_batch, batch_idx):
@@ -137,9 +137,9 @@ class VanillaVAE(pl.LightningModule):
         recon_img = self.decoder(z)
 
         recon_loss = F.mse_loss(recon_img, img)
+        kld_weight = 1e-3
         kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1), dim=0)
-
-        loss = recon_loss + kld_loss
+        loss = recon_loss + kld_weight * kld_loss
 
         self.log('train/loss', loss)
         self.log('train/recon_loss', recon_loss)
@@ -170,8 +170,10 @@ class VanillaVAE(pl.LightningModule):
         recon_img = self.decoder(mu)
         return recon_img
 
-    def sample(self):
-        pass
+    def sample(self, num_samples=144):
+        z = torch.randn(num_samples, 128)
+        samples = self.decoder(z)
+        return samples
 
 
 if __name__ == '__main__':
@@ -203,5 +205,5 @@ if __name__ == '__main__':
     model = VanillaVAE()
 
     # training
-    trainer = pl.Trainer(gpus=[1], max_epochs=50)
+    trainer = pl.Trainer(gpus=[0], max_epochs=50)
     trainer.fit(model, train_loader, val_loader)
