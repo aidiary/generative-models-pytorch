@@ -12,50 +12,31 @@ class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.conv1 = nn.Sequential(
+        self.conv_layers = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(32),
             nn.LeakyReLU(),
-        )
-
-        self.conv2 = nn.Sequential(
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(),
         )
 
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(),
-        )
+        self.mu_layer = nn.Linear(4096, 200)
+        self.logvar_layer = nn.Linear(4096, 200)
 
-        self.conv4 = nn.Sequential(
-            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(),
-        )
-
-        self.conv5 = nn.Sequential(
-            nn.Conv2d(256, 512, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(),
-        )
-
-        self.fc_mu = nn.Linear(512 * 2 * 2, 128)
-        self.fc_var = nn.Linear(512 * 2 * 2, 128)
-
-    def forward(self, img):
-        out = self.conv1(img)
-        out = self.conv2(out)
-        out = self.conv3(out)
-        out = self.conv4(out)
-        out = self.conv5(out)
+    def forward(self, imgs):
+        out = self.conv_layers(imgs)
 
         out = nn.Flatten()(out)
 
-        mu = self.fc_mu(out)
-        logvar = self.fc_var(out)
+        mu = self.mu_layer(out)
+        logvar = self.logvar_layer(out)
 
         return mu, logvar
 
@@ -64,42 +45,27 @@ class Decoder(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.decoder_input = nn.Linear(128, 2048)
+        self.decoder_input = nn.Linear(200, 4096)
 
-        self.deconv1 = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(),
-        )
-
-        self.deconv2 = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(),
-        )
-
-        self.deconv3 = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
+        self.deconv_layers = nn.Sequential(
+            nn.ConvTranspose2d(64, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(),
-        )
-
-        self.deconv4 = nn.Sequential(
-            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(32),
+            nn.ConvTranspose2d(64, 64, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(64),
             nn.LeakyReLU(),
-        )
-
-        self.deconv5 = nn.Sequential(
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(),
             nn.ConvTranspose2d(32, 3, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(3),
-            nn.Tanh(),
+            nn.Sigmoid(),
         )
 
     def forward(self, z):
         out = self.decoder_input(z)
 
-        out = out.view(-1, 512, 2, 2)
+        out = out.view(-1, 64, 8, 8)
 
         out = self.deconv1(out)
         out = self.deconv2(out)
