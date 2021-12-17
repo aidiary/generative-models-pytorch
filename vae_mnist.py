@@ -99,12 +99,13 @@ class VariationalAutoEncoder(pl.LightningModule):
         z = self.reparameterize(mu, logvar)
         recon_imgs = self.decoder(z)
 
+        recon_loss_factor = 1000
         recon_loss = F.mse_loss(recon_imgs, imgs)
         kl_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1))
-        loss = recon_loss + kl_loss
+        loss = recon_loss_factor * recon_loss + kl_loss
 
         self.log('train/loss', loss)
-        self.log('train_recon_loss', recon_loss)
+        self.log('train/recon_loss', recon_loss)
         self.log('train/kl_loss', kl_loss)
 
         return loss
@@ -115,12 +116,13 @@ class VariationalAutoEncoder(pl.LightningModule):
         z = self.reparameterize(mu, logvar)
         recon_imgs = self.decoder(z)
 
+        recon_loss_factor = 1000
         recon_loss = F.mse_loss(recon_imgs, imgs)
         kl_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1))
-        loss = recon_loss + kl_loss
+        loss = recon_loss_factor * recon_loss + kl_loss
 
         self.log('val/loss', loss)
-        self.log('val_recon_loss', recon_loss)
+        self.log('val/recon_loss', recon_loss)
         self.log('val/kl_loss', kl_loss)
 
         return loss
