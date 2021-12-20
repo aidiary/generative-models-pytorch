@@ -130,8 +130,8 @@ class VanillaVAE(pl.LightningModule):
         recon_img = self.decoder(mu)
         return recon_img
 
-    def sample(self, num_samples=144):
-        z = torch.randn(num_samples, 128)
+    def sample(self, num_samples=64):
+        z = torch.randn(num_samples, 200)
         samples = self.decoder(z)
         return samples
 
