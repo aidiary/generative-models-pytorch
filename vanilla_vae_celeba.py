@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import CelebA
@@ -55,7 +56,7 @@ class Decoder(nn.Module):
             nn.BatchNorm2d(64),
             nn.LeakyReLU(),
             nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.BatchNorm2d(64),
+            nn.BatchNorm2d(32),
             nn.LeakyReLU(),
             nn.ConvTranspose2d(32, 3, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.BatchNorm2d(3),
@@ -64,15 +65,8 @@ class Decoder(nn.Module):
 
     def forward(self, z):
         out = self.decoder_input(z)
-
         out = out.view(-1, 64, 8, 8)
-
-        out = self.deconv1(out)
-        out = self.deconv2(out)
-        out = self.deconv3(out)
-        out = self.deconv4(out)
-        recon_img = self.deconv5(out)
-
+        recon_img = self.deconv_layers(out)
         return recon_img
 
 
@@ -102,14 +96,14 @@ class VanillaVAE(pl.LightningModule):
         z = self.reparameterize(mu, logvar)
         recon_img = self.decoder(z)
 
+        recon_loss_factor = 10000
         recon_loss = F.mse_loss(recon_img, img)
-        kld_weight = 1e-3
-        kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1), dim=0)
-        loss = recon_loss + kld_weight * kld_loss
+        kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1))
+        loss = recon_loss_factor * recon_loss + kld_loss
 
         self.log('train/loss', loss)
         self.log('train/recon_loss', recon_loss)
-        self.log('train/kld_loss', kld_loss)
+        self.log('train/kl_loss', kld_loss)
 
         return loss
 
@@ -120,14 +114,14 @@ class VanillaVAE(pl.LightningModule):
         z = self.reparameterize(mu, logvar)
         recon_img = self.decoder(z)
 
+        recon_loss_factor = 10000
         recon_loss = F.mse_loss(recon_img, img)
-        kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1), dim=0)
-
-        loss = recon_loss + kld_loss
+        kld_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1))
+        loss = recon_loss_factor * recon_loss + kld_loss
 
         self.log('val/loss', loss)
         self.log('val/recon_loss', recon_loss)
-        self.log('val/kld_loss', kld_loss)
+        self.log('val/kl_loss', kld_loss)
 
         return loss
 
@@ -144,25 +138,23 @@ class VanillaVAE(pl.LightningModule):
 
 if __name__ == '__main__':
     # data
-    SetRange = transforms.Lambda(lambda x: 2 * x - 1)
     transform = transforms.Compose([
         transforms.RandomHorizontalFlip(),
         transforms.CenterCrop(148),
-        transforms.Resize(64),
-        transforms.ToTensor(),
-        SetRange,
+        transforms.Resize(128),
+        transforms.ToTensor()
     ])
 
     train_dataset = CelebA(root='data', split='train', transform=transform, download=False)
     val_dataset = CelebA(root='data', split='test', transform=transform, download=False)
 
     train_loader = DataLoader(train_dataset,
-                              batch_size=144,
+                              batch_size=32,
                               num_workers=8,
                               shuffle=True,
                               drop_last=True)
     val_loader = DataLoader(val_dataset,
-                            batch_size=144,
+                            batch_size=32,
                             num_workers=8,
                             shuffle=False,
                             drop_last=True)
@@ -171,5 +163,6 @@ if __name__ == '__main__':
     model = VanillaVAE()
 
     # training
-    trainer = pl.Trainer(gpus=[0], max_epochs=50)
+    tb_logger = TensorBoardLogger('lightning_logs', name='vanilla_vae_celeba', default_hp_metric=False)
+    trainer = pl.Trainer(gpus=[0], max_epochs=200, logger=tb_logger)
     trainer.fit(model, train_loader, val_loader)
