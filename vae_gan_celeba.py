@@ -139,11 +139,12 @@ class VAE_GAN(pl.LightningModule):
         imgs, _ = train_batch
         mu, logvar, recon_imgs = self.forward(imgs)
 
+        # gan_lossにはサンプリングした画像からも含めるとよい
         # muとlogvarではなく　N(0, I) からサンプリングして画像を復元
         z_p = torch.randn_like(mu)
         x_p_tilda = self.decoder(z_p)
 
-        # discriminatorの訓練
+        # discriminatorの訓練 (gan_loss)
         # real dataは1として判定したい
         out, _ = self.discriminator(imgs)
         loss_d_real = self.bce_loss(out, torch.ones_like(out))
@@ -161,7 +162,7 @@ class VAE_GAN(pl.LightningModule):
         self.manual_backward(gan_loss, retain_graph=True)
         opt_dis.step()
 
-        # decoder (= generator) の訓練
+        # decoder (= generator) の訓練 (gamma * recon_loss - gan_loss)
         # gan_lossはあとでマイナス記号をつけるので最大化を目指すことになる
         # TODO: realがzeros_like、fake/sampleがones_likeで最小化のほうがわかりやすい
         out, _ = self.discriminator(imgs)
@@ -182,7 +183,8 @@ class VAE_GAN(pl.LightningModule):
         self.manual_backward(dec_loss, retain_graph=True)
         opt_dec.step()
 
-        # encoderの訓練
+        # encoderの訓練 (kl_loss + recon_loss)
+        # ganのlossは使わない
         # descriminatorのボトルネック特徴量の距離でreconstruction loss
         mu, logvar, recon_imgs = self.forward(imgs)
         _, x_l = self.discriminator(imgs)
@@ -257,11 +259,21 @@ class VAE_GAN(pl.LightningModule):
         dec_loss = dec_loss.item()
         gan_loss = gan_loss.item()
 
-        self.log('valid/enc_loss', enc_loss)
-        self.log('valid/dec_loss', dec_loss)
-        self.log('valid/gan_loss', gan_loss)
+        self.log('va/enc_loss', enc_loss)
+        self.log('val/dec_loss', dec_loss)
+        self.log('val/gan_loss', gan_loss)
 
         return {'enc_loss': enc_loss, 'dec_loss': dec_loss, 'gan_loss': gan_loss}
+
+    def reconstruct(self, img):
+        mu, _ = self.encoder(img)
+        recon_imgs = self.decoder(mu)
+        return recon_imgs
+
+    def sample(self, num_samples=64):
+        z = torch.randn(num_samples, 128)
+        samples = self.decoder(z)
+        return samples
 
 
 if __name__ == '__main__':
