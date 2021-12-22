@@ -301,5 +301,5 @@ if __name__ == '__main__':
 
     # training
     tb_logger = TensorBoardLogger('lightning_logs', name='vae_gan', default_hp_metric=False)
-    trainer = pl.Trainer(gpus=[0], max_epochs=25, logger=tb_logger)
+    trainer = pl.Trainer(gpus=[0], max_epochs=200, logger=tb_logger)
     trainer.fit(model, train_loader, val_loader)
