@@ -127,10 +127,9 @@ class VAE_GAN(pl.LightningModule):
 
     def configure_optimizers(self):
         lr = 3e-4
-        alpha = 0.1
-        optim_encoder = optim.RMSprop(self.encoder.parameters(), lr=lr)
-        optim_decoder = optim.RMSprop(self.decoder.parameters(), lr=lr)
-        optim_discriminator = optim.RMSprop(self.discriminator.parameters(), lr=lr * alpha)
+        optim_encoder = optim.Adam(self.encoder.parameters(), lr=lr)
+        optim_decoder = optim.Adam(self.decoder.parameters(), lr=lr)
+        optim_discriminator = optim.Adam(self.discriminator.parameters(), lr=lr)
         return optim_encoder, optim_decoder, optim_discriminator
 
     def training_step(self, train_batch, batch_idx):
@@ -288,12 +287,12 @@ if __name__ == '__main__':
     val_dataset = CelebA(root='data', split='test', transform=transform, download=False)
 
     train_loader = DataLoader(train_dataset,
-                              batch_size=32,
+                              batch_size=64,
                               num_workers=8,
                               shuffle=True,
                               drop_last=True)
     val_loader = DataLoader(val_dataset,
-                            batch_size=32,
+                            batch_size=64,
                             num_workers=8,
                             shuffle=False,
                             drop_last=True)
