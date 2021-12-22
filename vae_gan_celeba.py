@@ -258,7 +258,7 @@ class VAE_GAN(pl.LightningModule):
         dec_loss = dec_loss.item()
         gan_loss = gan_loss.item()
 
-        self.log('va/enc_loss', enc_loss)
+        self.log('val/enc_loss', enc_loss)
         self.log('val/dec_loss', dec_loss)
         self.log('val/gan_loss', gan_loss)
 
