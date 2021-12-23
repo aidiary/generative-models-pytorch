@@ -127,10 +127,9 @@ class VAE_GAN(pl.LightningModule):
 
     def configure_optimizers(self):
         lr = 3e-4
-        alpha = 0.1
-        optim_encoder = optim.RMSprop(self.encoder.parameters(), lr=lr)
-        optim_decoder = optim.RMSprop(self.decoder.parameters(), lr=lr)
-        optim_discriminator = optim.RMSprop(self.discriminator.parameters(), lr=lr * alpha)
+        optim_encoder = optim.Adam(self.encoder.parameters(), lr=lr)
+        optim_decoder = optim.Adam(self.decoder.parameters(), lr=lr)
+        optim_discriminator = optim.Adam(self.discriminator.parameters(), lr=lr)
         return optim_encoder, optim_decoder, optim_discriminator
 
     def training_step(self, train_batch, batch_idx):
@@ -139,11 +138,12 @@ class VAE_GAN(pl.LightningModule):
         imgs, _ = train_batch
         mu, logvar, recon_imgs = self.forward(imgs)
 
+        # gan_lossにはサンプリングした画像からも含めるとよい
         # muとlogvarではなく　N(0, I) からサンプリングして画像を復元
         z_p = torch.randn_like(mu)
         x_p_tilda = self.decoder(z_p)
 
-        # discriminatorの訓練
+        # discriminatorの訓練 (gan_loss)
         # real dataは1として判定したい
         out, _ = self.discriminator(imgs)
         loss_d_real = self.bce_loss(out, torch.ones_like(out))
@@ -161,7 +161,7 @@ class VAE_GAN(pl.LightningModule):
         self.manual_backward(gan_loss, retain_graph=True)
         opt_dis.step()
 
-        # decoder (= generator) の訓練
+        # decoder (= generator) の訓練 (gamma * recon_loss - gan_loss)
         # gan_lossはあとでマイナス記号をつけるので最大化を目指すことになる
         # TODO: realがzeros_like、fake/sampleがones_likeで最小化のほうがわかりやすい
         out, _ = self.discriminator(imgs)
@@ -182,7 +182,8 @@ class VAE_GAN(pl.LightningModule):
         self.manual_backward(dec_loss, retain_graph=True)
         opt_dec.step()
 
-        # encoderの訓練
+        # encoderの訓練 (kl_loss + recon_loss)
+        # ganのlossは使わない
         # descriminatorのボトルネック特徴量の距離でreconstruction loss
         mu, logvar, recon_imgs = self.forward(imgs)
         _, x_l = self.discriminator(imgs)
@@ -257,11 +258,21 @@ class VAE_GAN(pl.LightningModule):
         dec_loss = dec_loss.item()
         gan_loss = gan_loss.item()
 
-        self.log('valid/enc_loss', enc_loss)
-        self.log('valid/dec_loss', dec_loss)
-        self.log('valid/gan_loss', gan_loss)
+        self.log('val/enc_loss', enc_loss)
+        self.log('val/dec_loss', dec_loss)
+        self.log('val/gan_loss', gan_loss)
 
         return {'enc_loss': enc_loss, 'dec_loss': dec_loss, 'gan_loss': gan_loss}
+
+    def reconstruct(self, img):
+        mu, _ = self.encoder(img)
+        recon_imgs = self.decoder(mu)
+        return recon_imgs
+
+    def sample(self, num_samples=64):
+        z = torch.randn(num_samples, 128)
+        samples = self.decoder(z)
+        return samples
 
 
 if __name__ == '__main__':
@@ -276,12 +287,12 @@ if __name__ == '__main__':
     val_dataset = CelebA(root='data', split='test', transform=transform, download=False)
 
     train_loader = DataLoader(train_dataset,
-                              batch_size=32,
+                              batch_size=64,
                               num_workers=8,
                               shuffle=True,
                               drop_last=True)
     val_loader = DataLoader(val_dataset,
-                            batch_size=32,
+                            batch_size=64,
                             num_workers=8,
                             shuffle=False,
                             drop_last=True)
@@ -290,5 +301,5 @@ if __name__ == '__main__':
 
     # training
     tb_logger = TensorBoardLogger('lightning_logs', name='vae_gan', default_hp_metric=False)
-    trainer = pl.Trainer(gpus=[0], max_epochs=25, logger=tb_logger)
+    trainer = pl.Trainer(gpus=[0], max_epochs=200, logger=tb_logger)
     trainer.fit(model, train_loader, val_loader)
