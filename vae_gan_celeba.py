@@ -114,6 +114,9 @@ class VAE_GAN(pl.LightningModule):
         self.bce_loss = nn.BCELoss()
         self.mse_loss = nn.MSELoss()
 
+        # decoder lossのrecon_lossにかける重み
+        self.gamma = 1.0
+
         # lightningで複数のoptimizerがあるときはmanual更新にする
         self.automatic_optimization = False
 
@@ -126,7 +129,7 @@ class VAE_GAN(pl.LightningModule):
         return mu, logvar, recon_imgs
 
     def configure_optimizers(self):
-        lr = 3e-4
+        lr = 1e-4
         optim_encoder = optim.Adam(self.encoder.parameters(), lr=lr)
         optim_decoder = optim.Adam(self.decoder.parameters(), lr=lr)
         optim_discriminator = optim.Adam(self.discriminator.parameters(), lr=lr)
@@ -157,13 +160,18 @@ class VAE_GAN(pl.LightningModule):
         loss_d_sample = self.bce_loss(out, torch.zeros_like(out))
 
         gan_loss = loss_d_real + loss_d_fake + loss_d_sample
+        self.log('train/discriminator/1.gan_loss', gan_loss)
         opt_dis.zero_grad()
         self.manual_backward(gan_loss, retain_graph=True)
         opt_dis.step()
 
         # decoder (= generator) の訓練 (gamma * recon_loss - gan_loss)
+        # discriminatorのボトルネック特徴量の距離でreconstruction loss
+        _, x_l = self.discriminator(imgs)
+        _, x_l_tilda = self.discriminator(recon_imgs)
+        recon_loss = self.mse_loss(x_l, x_l_tilda)
+
         # gan_lossはあとでマイナス記号をつけるので最大化を目指すことになる
-        # TODO: realがzeros_like、fake/sampleがones_likeで最小化のほうがわかりやすい
         out, _ = self.discriminator(imgs)
         loss_d_real = self.bce_loss(out, torch.ones_like(out))
         out, _ = self.discriminator(recon_imgs)
@@ -171,13 +179,11 @@ class VAE_GAN(pl.LightningModule):
         out, _ = self.discriminator(x_p_tilda)
         loss_d_sample = self.bce_loss(out, torch.zeros_like(out))
         gan_loss2 = loss_d_real + loss_d_fake + loss_d_sample
+        dec_loss = self.gamma * recon_loss - gan_loss2
+        self.log('train/decoder/1.recon_loss', recon_loss)
+        self.log('train/decoder/2.gan_loss', gan_loss2)
+        self.log('train/decoder/3.total_loss', dec_loss)
 
-        # discriminatorのボトルネック特徴量の距離でreconstruction loss
-        _, x_l = self.discriminator(imgs)
-        _, x_l_tilda = self.discriminator(recon_imgs)
-        recon_loss = self.mse_loss(x_l, x_l_tilda)
-        gamma = 15.0
-        dec_loss = gamma * recon_loss - gan_loss2
         opt_dec.zero_grad()
         self.manual_backward(dec_loss, retain_graph=True)
         opt_dec.step()
@@ -190,7 +196,11 @@ class VAE_GAN(pl.LightningModule):
         _, x_l_tilda = self.discriminator(recon_imgs)
         recon_loss = self.mse_loss(x_l, x_l_tilda)
         kl_loss = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp()) / torch.numel(mu.data)
-        enc_loss = 5.0 * recon_loss + kl_loss
+        enc_loss = recon_loss + kl_loss
+        self.log('train/encoder/1.recon_loss', recon_loss)
+        self.log('train/encoder/2.kl_loss', kl_loss)
+        self.log('train/encoder/3.total_loss', enc_loss)
+
         opt_enc.zero_grad()
         self.manual_backward(enc_loss, retain_graph=True)
         opt_enc.step()
@@ -198,10 +208,6 @@ class VAE_GAN(pl.LightningModule):
         enc_loss = enc_loss.item()
         dec_loss = dec_loss.item()
         gan_loss = gan_loss.item()
-
-        self.log('train/enc_loss', enc_loss)
-        self.log('train/dec_loss', dec_loss)
-        self.log('train/gan_loss', gan_loss)
 
         return {'enc_loss': enc_loss, 'dec_loss': dec_loss, 'gan_loss': gan_loss}
 
@@ -227,10 +233,15 @@ class VAE_GAN(pl.LightningModule):
         loss_d_sample = self.bce_loss(out, torch.zeros_like(out))
 
         gan_loss = loss_d_real + loss_d_fake + loss_d_sample
+        self.log('val/discriminator/1.gan_loss', gan_loss)
 
         # decoder (= generator)
+        # discriminatorのボトルネック特徴量の距離でreconstruction loss
+        _, x_l = self.discriminator(imgs)
+        _, x_l_tilda = self.discriminator(recon_imgs)
+        recon_loss = self.mse_loss(x_l, x_l_tilda)
+
         # gan_lossはあとでマイナス記号をつけるので最大化を目指すことになる
-        # TODO: realがzeros_like、fake/sampleがones_likeで最小化のほうがわかりやすい
         out, _ = self.discriminator(imgs)
         loss_d_real = self.bce_loss(out, torch.ones_like(out))
         out, _ = self.discriminator(recon_imgs)
@@ -238,29 +249,26 @@ class VAE_GAN(pl.LightningModule):
         out, _ = self.discriminator(x_p_tilda)
         loss_d_sample = self.bce_loss(out, torch.zeros_like(out))
         gan_loss2 = loss_d_real + loss_d_fake + loss_d_sample
-
-        # discriminatorのボトルネック特徴量の距離でreconstruction loss
-        _, x_l = self.discriminator(imgs)
-        _, x_l_tilda = self.discriminator(recon_imgs)
-        recon_loss = self.mse_loss(x_l, x_l_tilda)
-        gamma = 15.0
-        dec_loss = gamma * recon_loss - gan_loss2
+        dec_loss = self.gamma * recon_loss - gan_loss2
+        self.log('val/decoder/1.recon_loss', recon_loss)
+        self.log('val/decoder/2.gan_loss', gan_loss2)
+        self.log('val/decoder/3.total_loss', dec_loss)
 
         # encoderの訓練
         # descriminatorのボトルネック特徴量の距離でreconstruction loss
         mu, logvar, recon_imgs = self.forward(imgs)
         _, x_l = self.discriminator(imgs)
+        _, x_l_tilda = self.discriminator(recon_imgs)
         recon_loss = self.mse_loss(x_l, x_l_tilda)
         kl_loss = -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp()) / torch.numel(mu.data)
-        enc_loss = 5.0 * recon_loss + kl_loss
+        enc_loss = recon_loss + kl_loss
+        self.log('val/encoder/1.recon_loss', recon_loss)
+        self.log('val/encoder/2.kl_loss', kl_loss)
+        self.log('val/encoder/3.total_loss', enc_loss)
 
         enc_loss = enc_loss.item()
         dec_loss = dec_loss.item()
         gan_loss = gan_loss.item()
-
-        self.log('val/enc_loss', enc_loss)
-        self.log('val/dec_loss', dec_loss)
-        self.log('val/gan_loss', gan_loss)
 
         return {'enc_loss': enc_loss, 'dec_loss': dec_loss, 'gan_loss': gan_loss}
 
