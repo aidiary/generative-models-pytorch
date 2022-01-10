@@ -1,3 +1,5 @@
+import functools
+
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -12,25 +14,25 @@ class Generator(nn.Module):
         super().__init__()
 
         self.deconv1 = nn.Sequential(
-            nn.ConvTranspose2d(128, 512, kernel_size=4, stride=1, padding=0),
+            nn.ConvTranspose2d(128, 512, kernel_size=4, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(512),
             nn.ReLU(),
         )
 
         self.deconv2 = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(256),
             nn.ReLU(),
         )
 
         self.deconv3 = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.ReLU(),
         )
 
         self.deconv4 = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(),
         )
@@ -59,20 +61,20 @@ class Discriminator(nn.Module):
         )
 
         self.conv2 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(128),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.GroupNorm(1, 128),
             nn.LeakyReLU(0.2),
         )
 
         self.conv3 = nn.Sequential(
-            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(256),
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.GroupNorm(1, 256),
             nn.LeakyReLU(0.2),
         )
 
         self.conv4 = nn.Sequential(
-            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(512),
+            nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.GroupNorm(1, 512),
             nn.LeakyReLU(0.2),
         )
 
@@ -101,12 +103,12 @@ class WGAN_GP(pl.LightningModule):
         pass
 
     def configure_optimizers(self):
-        opt_g = torch.optim.Adam(self.generator.parameters(), lr=0.0002)
-        opt_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002)
+        opt_g = torch.optim.Adam(self.generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+        opt_d = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
         return opt_g, opt_d
 
     def d_loss_fn(self, r_logit, f_logit):
-        return -r_logit.mean() + f_logit.mean()
+        return r_logit.mean(), f_logit.mean()
 
     def g_loss_fn(self, f_logit):
         return -f_logit.mean()
@@ -114,7 +116,7 @@ class WGAN_GP(pl.LightningModule):
     def gradient_penalty(self, real_img, fake_img):
         sample_img = self.sample(real_img, fake_img)
         sample_img.requires_grad = True
-        pred = self.discriminator(sample_img)
+        pred = functools.partial(self.discriminator)(sample_img)
         grad = torch.autograd.grad(pred,
                                    sample_img,
                                    grad_outputs=torch.ones_like(pred),
@@ -144,10 +146,12 @@ class WGAN_GP(pl.LightningModule):
         real_d_logit = self.discriminator(real_img)
         fake_d_logit = self.discriminator(fake_img)
 
-        d_loss = self.d_loss_fn(real_d_logit, fake_d_logit)
+        real_d_loss, fake_d_loss = self.d_loss_fn(real_d_logit, fake_d_logit)
         gp = self.gradient_penalty(real_img, fake_img)
 
-        d_loss = d_loss + 10.0 * gp
+        d_loss = (fake_d_loss - real_d_loss) + 10.0 * gp
+        self.log('train/real_d_loss', real_d_loss)
+        self.log('train/fake_d_loss', fake_d_loss)
         self.log('train/d_loss', d_loss)
         self.log('train/gp', gp)
 
@@ -190,6 +194,7 @@ if __name__ == '__main__':
 
     # model
     model = WGAN_GP()
+    print(model)
 
     # training
     tb_logger = TensorBoardLogger('lightning_logs', name='wgan_gp_celeba', default_hp_metric=False)
