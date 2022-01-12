@@ -1,1 +1,1 @@
-# vae-pytorch
+# generative-models-pytorch
